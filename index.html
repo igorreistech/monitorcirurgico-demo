@@ -6426,7 +6426,6 @@ html:not(.modo-demo) #loginBtnDemo{display:none!important}
                         <option value="">Selecione</option>
                         <option>Gabriely Amorim Dias</option>
                         <option>Gustavo Ovídio Mussi Faverão</option>
-                        <option>Jeferson Cruz Rodrigues</option>
                         <option>Leandro Sabino</option>
                         <option>Marcella Fernandes Ricci</option>
                         <option>Marcos Gonçalves da Silva</option>
@@ -7169,6 +7168,29 @@ function showSyncToast(msg) {
     toast._t = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
 }
 
+// ─── SUGESTÃO DE COBRANÇA (não-bloqueante) ───
+// Antes disso, o lembrete de cobrança abria um popup obrigatório (sem botão
+// de Cancelar) travando o uso do sistema até escolher uma opção. Virou um
+// aviso discreto no canto da tela, com um botão pra abrir a cobrança quando
+// for conveniente — não trava mais nada ao abrir o monitor.
+function mostrarSugestaoCobranca(pendRetirada, pendFicha) {
+    const antigo = document.getElementById('sugestaoCobranca');
+    if (antigo) antigo.remove();
+    const partes = [];
+    if (pendRetirada > 0) partes.push(pendRetirada + ' aguardando retirada');
+    if (pendFicha > 0) partes.push(pendFicha + ' ficha(s) OPME');
+    const box = document.createElement('div');
+    box.id = 'sugestaoCobranca';
+    box.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9998;background:var(--surface,#fff);border:1px solid var(--border);border-left:4px solid #25D366;border-radius:12px;padding:16px 34px 16px 18px;max-width:320px;box-shadow:0 10px 30px rgba(0,0,0,0.25);font-family:\'Space Grotesk\',sans-serif;';
+    box.innerHTML =
+        '<button id="fecharSugestaoCobranca" style="position:absolute;top:8px;right:10px;background:none;border:none;color:var(--text-dim,#6b7280);cursor:pointer;font-size:1rem;line-height:1;">✕</button>' +
+        '<div style="font-size:0.85rem;color:var(--text,#111);margin-bottom:12px;">💬 Você tem <b>' + partes.join(' e ') + '</b> pendente(s). Que tal cobrar via WhatsApp?</div>' +
+        '<button id="abrirSugestaoCobranca" style="padding:9px 14px;border-radius:8px;border:none;background:linear-gradient(135deg,#25d366,#128c7e);color:#fff;font-family:var(--mono);font-size:0.75rem;font-weight:700;cursor:pointer;width:100%;">Cobrar agora</button>';
+    document.body.appendChild(box);
+    document.getElementById('fecharSugestaoCobranca').onclick = () => box.remove();
+    document.getElementById('abrirSugestaoCobranca').onclick = () => { box.remove(); window.abrirCobrarWhatsApp(); };
+}
+
 // ─── AUTO BACKUP ───
 let _autoBackupTimer = null;
 
@@ -7508,13 +7530,10 @@ function _agruparPorFilialWhatsApp(lista) {
 
 // ─── ESCOLHA DO QUE COBRAR — botão principal da barra ───
 // Pergunta se a cobrança deve sair só de Aguardando Retirada, só de
-// Aguardando Ficha OPME, ou os dois juntos, antes de montar a mensagem.
-// opts.bloqueante: some o botão Cancelar — usado pelo lembrete automático,
-// que precisa forçar uma escolha em vez de deixar pular sem fazer nada.
-// opts.aoEscolher: callback chamado quando qualquer uma das 3 opções é
-// escolhida (usado pelo lembrete pra marcar aquele horário como cumprido).
-window.abrirCobrarWhatsApp = function(opts) {
-    opts = opts || {};
+// Aguardando Ficha OPME, ou os dois juntos, antes de montar a mensagem. Se
+// houver um vendedor filtrado na tela, oferece a opção de restringir a
+// cobrança só a ele.
+window.abrirCobrarWhatsApp = function() {
     const antigo = document.getElementById('modalEscolhaCobrar');
     if (antigo) antigo.remove();
     const overlay = document.createElement('div');
@@ -7524,28 +7543,34 @@ window.abrirCobrarWhatsApp = function(opts) {
         '<div style="background:var(--surface,#fff);border:1px solid var(--border);border-top:4px solid #25D366;border-radius:16px;padding:28px 26px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,0.35);">' +
             '<div style="font-family:var(--mono);font-size:0.82rem;font-weight:700;letter-spacing:0.08em;color:#25D366;text-transform:uppercase;margin-bottom:18px;">💬 Cobrar via WhatsApp</div>' +
             '<div style="font-family:\'Space Grotesk\',sans-serif;font-size:0.92rem;color:var(--text,#111);margin-bottom:18px;">O que você quer cobrar?</div>' +
+            (currentVendedorFilter !== 'all' ?
+                '<label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-family:var(--mono);font-size:0.78rem;color:var(--text-dim,#6b7280);cursor:pointer;">' +
+                    '<input type="checkbox" id="chkCobrarSoVendedor" checked style="width:16px;height:16px;flex-shrink:0;">' +
+                    '<span>Só do vendedor filtrado: <b style="color:var(--text,#111);">' + currentVendedorFilter + '</b></span>' +
+                '</label>'
+                : '') +
             '<div style="display:flex;flex-direction:column;gap:10px;">' +
                 '<button id="btnCobrarSoRetirada" style="padding:13px;border-radius:10px;border:2px solid #f97316;background:transparent;color:#f97316;font-family:var(--mono);font-size:0.85rem;font-weight:700;cursor:pointer;">📦 Só Aguardando Retirada</button>' +
                 '<button id="btnCobrarSoFicha" style="padding:13px;border-radius:10px;border:2px solid #a855f7;background:transparent;color:#a855f7;font-family:var(--mono);font-size:0.85rem;font-weight:700;cursor:pointer;">📋 Só Ficha OPME</button>' +
                 '<button id="btnCobrarAmbos" style="padding:13px;border-radius:10px;border:2px solid #25D366;background:#25D366;color:#fff;font-family:var(--mono);font-size:0.85rem;font-weight:700;cursor:pointer;">📦📋 Os Dois Juntos</button>' +
-                (opts.bloqueante ? '' : '<button id="btnCobrarCancelar" style="padding:10px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text-dim,#6b7280);font-family:var(--mono);font-size:0.78rem;font-weight:700;cursor:pointer;">Cancelar</button>') +
+                '<button id="btnCobrarCancelar" style="padding:10px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text-dim,#6b7280);font-family:var(--mono);font-size:0.78rem;font-weight:700;cursor:pointer;">Cancelar</button>' +
             '</div>' +
         '</div>';
     document.body.appendChild(overlay);
     const fechar = () => overlay.remove();
     const escolher = (filtro) => {
+        const chkVendedor = overlay.querySelector('#chkCobrarSoVendedor');
+        const vendedorFiltro = (chkVendedor && chkVendedor.checked) ? currentVendedorFilter : null;
         fechar();
-        exportarWhatsApp(filtro);
-        if (opts.aoEscolher) opts.aoEscolher();
+        exportarWhatsApp(filtro, vendedorFiltro);
     };
     overlay.querySelector('#btnCobrarSoRetirada').onclick = () => escolher('retirada');
     overlay.querySelector('#btnCobrarSoFicha').onclick = () => escolher('ficha');
     overlay.querySelector('#btnCobrarAmbos').onclick = () => escolher(undefined);
-    const btnCancelar = overlay.querySelector('#btnCobrarCancelar');
-    if (btnCancelar) btnCancelar.onclick = fechar;
+    overlay.querySelector('#btnCobrarCancelar').onclick = fechar;
 };
 
-async function exportarWhatsApp(filtro) {
+async function exportarWhatsApp(filtro, vendedorFiltro) {
     if (!(await confirmarFilialAntesDeCobrar())) return;
     await verificarPromocaoRetirada();
 
@@ -7558,9 +7583,13 @@ async function exportarWhatsApp(filtro) {
 
     // filtro: 'retirada' -> só Aguardando Retirada, 'ficha' -> só Aguardando
     // Ficha OPME, undefined/'todos' -> os dois juntos (comportamento padrão
-    // do botão principal "Cobrar via WhatsApp").
+    // do botão principal "Cobrar via WhatsApp"). vendedorFiltro, quando
+    // informado, restringe a cobrança só às pendências daquele vendedor
+    // (opção marcada no modal quando já existe um filtro de vendedor ativo
+    // na tela).
     var cirurgias = filtro === 'ficha' ? [] : procedimentos.filter(function(p) {
         if (_ehColeta(p) || p.isColeta) return false;
+        if (vendedorFiltro && (p.vendedor || '') !== vendedorFiltro) return false;
         return p.status === 'a_retirar';
     });
     cirurgias.sort(function(a,b) { return (a.retirada||'').localeCompare(b.retirada||''); });
@@ -7570,6 +7599,7 @@ async function exportarWhatsApp(filtro) {
     // com pendência de retirada física.
     var fichasPendentes = filtro === 'retirada' ? [] : procedimentos.filter(function(p) {
         if (_ehColeta(p) || p.isColeta) return false;
+        if (vendedorFiltro && (p.vendedor || '') !== vendedorFiltro) return false;
         return p.status === 'aguardando_ficha_opme';
     });
     fichasPendentes.sort(function(a,b) { return (a.dataConfirmacaoRetirada||'').localeCompare(b.dataConfirmacaoRetirada||''); });
@@ -7581,7 +7611,7 @@ async function exportarWhatsApp(filtro) {
 
     var linhas = [];
     linhas.push('Olá! ');
-    linhas.push('Segue as pendências do *Monitor Cirúrgico*:');
+    linhas.push(vendedorFiltro ? 'Segue as pendências do *Monitor Cirúrgico* (vendedor: *' + vendedorFiltro + '*):' : 'Segue as pendências do *Monitor Cirúrgico*:');
 
     if (cirurgias.length > 0) {
         linhas.push('');
@@ -11416,11 +11446,10 @@ setTimeout(atualizarBannerPendencias, 5500);
 
 // ─── LEMBRETE 2X POR DIA (08h e 14h) — COBRAR VIA WHATSAPP (número fixo por unidade) ───
 // Às 8h e às 14h, se tiver pendência de Aguardando Retirada ou Aguardando
-// Ficha OPME, abre direto a mesma tela de escolha do botão manual "Cobrar via
-// WhatsApp" (Retirada/Ficha/Ambos) — só que bloqueante (sem Cancelar): tem
-// que escolher uma opção pra sair do popup, não dá pra ignorar e seguir
-// usando o sistema. Cada operador identificado (conta comercial@
-// compartilhada) recebe seu próprio lembrete em cada horário.
+// Ficha OPME, mostra um aviso discreto e dispensável (mostrarSugestaoCobranca)
+// com atalho pra abrir a mesma tela de escolha do botão manual "Cobrar via
+// WhatsApp" — não bloqueia o uso do sistema. Cada operador identificado
+// (conta comercial@ compartilhada) recebe seu próprio aviso em cada horário.
 const HORARIOS_LEMBRETE_COBRANCA = [8, 14];
 
 function _nomeOperadorLembrete() {
@@ -11433,7 +11462,6 @@ function _nomeOperadorLembrete() {
 // que ele apareça em cima do lembrete.
 function verificarLembreteCobrancaDiario(depois) {
     const finalizarSemMostrar = () => { if (depois) depois(); };
-    if (document.getElementById('modalEscolhaCobrar')) return; // já está na tela, não duplica (nem chama depois — quem abriu é dono do fluxo)
     if (typeof _precisaNomeOp === 'function' && _precisaNomeOp()) { finalizarSemMostrar(); return; } // espera identificar o operador primeiro
 
     const agora = new Date();
@@ -11445,13 +11473,15 @@ function verificarLembreteCobrancaDiario(depois) {
     if (checkpoint === undefined) { finalizarSemMostrar(); return; } // ainda não chegou nem nas 8h
 
     const chave = window._brKey('lembrete_cobranca_' + hoje + '_' + operador + '_' + checkpoint + 'h');
-    if (localStorage.getItem(chave)) { finalizarSemMostrar(); return; } // esse horário já foi confirmado hoje por esse operador
+    if (localStorage.getItem(chave)) { finalizarSemMostrar(); return; } // esse horário já foi avisado hoje pra esse operador
+    localStorage.setItem(chave, '1');
 
     const pendRetirada = procedimentos.filter(p => !_ehColeta(p) && p.status === 'a_retirar').length;
     const pendFicha = procedimentos.filter(p => !_ehColeta(p) && p.status === 'aguardando_ficha_opme').length;
     if (pendRetirada === 0 && pendFicha === 0) { finalizarSemMostrar(); return; }
 
-    window.abrirCobrarWhatsApp({ bloqueante: true, aoEscolher: () => { localStorage.setItem(chave, '1'); finalizarSemMostrar(); } });
+    mostrarSugestaoCobranca(pendRetirada, pendFicha);
+    finalizarSemMostrar();
 }
 
 // ─── RESUMO DO DIA AUTOMÁTICO (só contas comercial compartilhadas) ───
@@ -11498,24 +11528,22 @@ function _forcarModalSelecaoOperador(callback) {
     overlay.classList.add('open');
 }
 
-// Bloqueio de cobrança pra conta comercial compartilhada — SEM limite de
-// horário e SEM "já resolvido hoje": escolher uma opção só abre o WhatsApp,
-// não garante que a mensagem foi realmente enviada nem que a pendência foi
-// resolvida, então a tela volta a bloquear em toda nova abertura do sistema
-// enquanto o status continuar como Aguardando Retirada/Ficha OPME. Só some
-// de verdade quando o status do procedimento mudar.
+// Sugestão de cobrança pra conta comercial compartilhada — não bloqueia mais
+// a tela ao abrir o monitor. Antes forçava escolher uma opção (sem
+// Cancelar) toda vez que o sistema abria com pendência de Aguardando
+// Retirada/Ficha OPME; agora só mostra um aviso discreto, dispensável, com
+// atalho pra abrir a cobrança quando for conveniente.
 function _verificarBloqueioCobrancaComercial(tentativa) {
     if (!_isContaComercialCompartilhada()) return;
     if (typeof _precisaNomeOp === 'function' && _precisaNomeOp()) return;
-    if (document.getElementById('modalEscolhaCobrar')) return;
     if (!procedimentos.length && (tentativa || 0) < 15) {
         setTimeout(() => _verificarBloqueioCobrancaComercial((tentativa || 0) + 1), 1000);
         return;
     }
     const pendRetirada = procedimentos.filter(p => !_ehColeta(p) && p.status === 'a_retirar').length;
     const pendFicha = procedimentos.filter(p => !_ehColeta(p) && p.status === 'aguardando_ficha_opme').length;
-    if (pendRetirada === 0 && pendFicha === 0) { _verificarResumoDiaAutomatico(); return; }
-    window.abrirCobrarWhatsApp({ bloqueante: true, aoEscolher: () => _verificarResumoDiaAutomatico() });
+    if (pendRetirada > 0 || pendFicha > 0) mostrarSugestaoCobranca(pendRetirada, pendFicha);
+    _verificarResumoDiaAutomatico();
 }
 
 function _iniciarSequenciaLoginComercial() {
