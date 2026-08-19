@@ -7956,10 +7956,17 @@ function getFiltered() {
 }
 
 
+// Vendedores que não devem mais aparecer como opção de filtro (ex.: saíram
+// da empresa) — os registros antigos continuam com o nome deles normalmente,
+// só somem da lista de seleção.
+const VENDEDORES_OCULTOS_FILTRO = ['Jeferson Cruz', 'Jeferson Cruz Rodrigues'];
+
 function atualizarFiltroVendedor() {
     const sel = document.getElementById('vendedor-select');
     if (!sel) return;
-    const vendedores = [...new Set(procedimentos.map(p => p.vendedor).filter(Boolean))].sort();
+    const vendedores = [...new Set(procedimentos.map(p => p.vendedor).filter(Boolean))]
+        .filter(v => !VENDEDORES_OCULTOS_FILTRO.includes(v))
+        .sort();
     const current = sel.value;
     sel.innerHTML = '<option value="all">Todos</option>' +
         vendedores.map(v => `<option value="${v}"${v === current ? ' selected' : ''}>${v}</option>`).join('');
