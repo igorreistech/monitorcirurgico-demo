@@ -7958,14 +7958,24 @@ function getFiltered() {
 
 // Vendedores que não devem mais aparecer como opção de filtro (ex.: saíram
 // da empresa) — os registros antigos continuam com o nome deles normalmente,
-// só somem da lista de seleção.
-const VENDEDORES_OCULTOS_FILTRO = ['Jeferson Cruz', 'Jeferson Cruz Rodrigues'];
+// só somem da lista de seleção. Comparação normalizada (sem acento/caixa/
+// espaço) e por prefixo pra pegar qualquer variação do nome já digitada nos
+// registros (ex.: "Jeferson Cruz", "Jeferson Cruz Rodrigues", "Jeferson
+// Rodrigues Cruz").
+const PREFIXOS_VENDEDOR_OCULTO = ['jeferson'];
+function _normNome(s) {
+    return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+}
+function _vendedorOculto(v) {
+    const n = _normNome(v);
+    return PREFIXOS_VENDEDOR_OCULTO.some(p => n.startsWith(p));
+}
 
 function atualizarFiltroVendedor() {
     const sel = document.getElementById('vendedor-select');
     if (!sel) return;
     const vendedores = [...new Set(procedimentos.map(p => p.vendedor).filter(Boolean))]
-        .filter(v => !VENDEDORES_OCULTOS_FILTRO.includes(v))
+        .filter(v => !_vendedorOculto(v))
         .sort();
     const current = sel.value;
     sel.innerHTML = '<option value="all">Todos</option>' +
@@ -9281,7 +9291,7 @@ function editProc(docId) {
 // Cada filial tem sua própria lista de operadores — quem aparece pra
 // escolher em "Quem está operando agora?" muda conforme a unidade ativa.
 const NOMES_OPERADOR_CBA = ['Beatriz Helena Calil Barbosa','Cristina Luzia','Izabela Crozetta','Kauana da Silva Feitoza','Marcio Benedito Queiroz','Murilo Julio Sant Ana Pereira','Renata Franco de Lima','Roberto Alex Cândido','Starley Santos Silva','Wilson Cordeiro'];
-const NOMES_OPERADOR_CGR = ['Eva Diana de Araujo','Gabriely Amorim Dias','Gustavo Ovídio Mussi Faverão','Igor dos Reis Silva','Jeferson Rodrigues Cruz','Larissa Amanda Bernardo do Valle','Luis Felipe Moura Braga','Marcella Fernandes Ricci','Marcos Gonçalves da Silva','Paulo Vitor Leite da Silva','Regiane da Silva Ramos','Thayz Benites Leonel','Tiago da Silva Siqueira'];
+const NOMES_OPERADOR_CGR = ['Eva Diana de Araujo','Gabriely Amorim Dias','Gustavo Ovídio Mussi Faverão','Igor dos Reis Silva','Larissa Amanda Bernardo do Valle','Luis Felipe Moura Braga','Marcella Fernandes Ricci','Marcos Gonçalves da Silva','Paulo Vitor Leite da Silva','Regiane da Silva Ramos','Thayz Benites Leonel','Tiago da Silva Siqueira'];
 // No Consolidado mostra as duas listas juntas (cobre as duas cidades).
 function _nomesOperadorAtivos() {
     if (window._gfMode === 'cba') return NOMES_OPERADOR_CBA;
