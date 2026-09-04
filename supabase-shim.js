@@ -175,6 +175,8 @@ export function createFirestoreShim(supabase) {
   function onSnapshot(collRefOrQuery, callback) {
     const table = collRefOrQuery._table;
     let cache = new Map(); // id -> row (snake_case, como vem do Postgres)
+    let pronto = false;
+    let pendentes = []; // eventos chegados antes da carga inicial terminar
 
     function emit() {
       const docs = [...cache.values()].map(row => ({
@@ -184,24 +186,40 @@ export function createFirestoreShim(supabase) {
       callback({ docs, empty: docs.length === 0, forEach: cb => docs.forEach(cb) });
     }
 
-    (async () => {
-      const { data, error } = await supabase.from(table).select('*');
-      if (error) { console.error(`onSnapshot(${table}) carga inicial falhou:`, error); return; }
-      cache = new Map(data.map(r => [r.id, r]));
-      emit();
-    })();
+    function aplicar(payload) {
+      if (payload.eventType === 'DELETE') {
+        cache.delete(payload.old.id);
+      } else {
+        cache.set(payload.new.id, payload.new);
+      }
+    }
 
+    // A assinatura do canal precisa ficar ativa ANTES do SELECT inicial rodar,
+    // senão existe uma janela entre "SELECT terminou" e "canal inscrito" em que
+    // uma mudança no servidor não é capturada por nenhum dos dois lados (não
+    // está no snapshot, que já foi tirado, e não dispara evento, porque o canal
+    // ainda não estava ouvindo) — ela só reapareceria se algum outro evento
+    // qualquer disparasse um novo emit(), ou nunca, até recarregar a página.
+    // Por isso: inscreve o canal primeiro; eventos que chegarem antes da carga
+    // inicial terminar ficam em buffer e são reaplicados por cima do snapshot
+    // assim que ele chega (reaplicar é idempotente — upsert/delete por id).
     const channel = supabase
       .channel(`shim-${table}-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table }, payload => {
-        if (payload.eventType === 'DELETE') {
-          cache.delete(payload.old.id);
-        } else {
-          cache.set(payload.new.id, payload.new);
-        }
+        if (!pronto) { pendentes.push(payload); return; }
+        aplicar(payload);
         emit();
       })
-      .subscribe();
+      .subscribe(async status => {
+        if (status !== 'SUBSCRIBED' || pronto) return;
+        const { data, error } = await supabase.from(table).select('*');
+        if (error) { console.error(`onSnapshot(${table}) carga inicial falhou:`, error); return; }
+        cache = new Map(data.map(r => [r.id, r]));
+        pendentes.forEach(aplicar);
+        pendentes = [];
+        pronto = true;
+        emit();
+      });
 
     // Firestore retorna uma função de unsubscribe — replicamos a mesma interface.
     return () => supabase.removeChannel(channel);

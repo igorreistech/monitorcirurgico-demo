@@ -268,37 +268,103 @@
         setTimeout(fechar, 8000);
       }
 
+      // Fonte única de metadados de status (chave → label/emoji/cor). O resumo
+      // inicial e updateStats() já consomem daqui. Os ~20 mapas equivalentes
+      // espalhados pelo resto do arquivo (kanban, relatórios, cobrança) ainda
+      // não foram migrados pra cá — divergiam entre si em alguns labels (ex:
+      // "a_retirar" aparecia como "Aguardando Retirada" em uns lugares e "A
+      // Retirar"/"Aguard. Retirada" em outros); mover cada call-site pra usar
+      // window.STATUS_META é um passo futuro, feito com calma um de cada vez.
+      window.STATUS_META = [
+        { key:'urgencia',              label:'Urgência',             emoji:'🚨', cor:'#ef4444' },
+        { key:'coleta_urgente',        label:'Retirada de Material', emoji:'✈️', cor:'#6366f1' },
+        { key:'a_agendar',             label:'Autorizados',          emoji:'📅', cor:'#06b6d4' },
+        { key:'agendado',              label:'Agendados',            emoji:'📋', cor:'#3b82f6' },
+        { key:'preparacao',            label:'Em Separação',         emoji:'⚙️', cor:'#f59e0b' },
+        { key:'em_transito',           label:'Em Trânsito',          emoji:'🚚', cor:'#8b5cf6' },
+        { key:'andamento',             label:'Em Procedimento',      emoji:'🔬', cor:'#10b981' },
+        { key:'a_retirar',             label:'A Retirar',            emoji:'📦', cor:'#f97316' },
+        { key:'aguardando_ficha_opme', label:'Aguard. Ficha OPME',   emoji:'📋', cor:'#a855f7' },
+        { key:'reagendado',            label:'Reagendados',          emoji:'↺',  cor:'#a78bfa' },
+        { key:'concluido',             label:'Concluídos',           emoji:'✅', cor:'#22c55e' },
+        { key:'cancelado',             label:'Cancelados',           emoji:'❌', cor:'#6b7280' },
+      ];
+
+      // Conta procedimentos por status a partir do STATUS_META acima, pra não
+      // divergir da lista usada no resumo/stat cards. Inclui de propósito os
+      // registros de Retirada de Material (coleta) nos buckets a_retirar /
+      // aguardando_ficha_opme — essa é a contagem OPERACIONAL (quanto está
+      // fisicamente pendente nesse status). Os lembretes de cobrança usam
+      // _ehColeta() pra EXCLUIR coleta desses mesmos buckets de propósito
+      // (cobrança de OPME é um fluxo de negócio diferente do de retirada de
+      // volumes) — são duas definições intencionalmente diferentes da mesma
+      // contagem bruta, não um bug; não migrar o uso de cobrança pra cá.
+      window.contarProcedimentosPorStatus = function(procs) {
+        const out = {};
+        window.STATUS_META.forEach(g => { out[g.key] = (procs || []).filter(p => p.status === g.key).length; });
+        return out;
+      };
+
       function mostrarResumoInicial() {
         if (window._resumoInicialMostrado) return;
         window._resumoInicialMostrado = true;
         const procs = window.procedimentos || [];
         const total = procs.length;
         const hora = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
-        const grupos = [
-          { key:'urgencia',       label:'🚨 Urgência',           cor:'#ef4444' },
-          { key:'coleta_urgente', label:'✈️ Retirada de Material', cor:'#6366f1' },
-          { key:'a_agendar',      label:'📅 Autorizados',         cor:'#06b6d4' },
-          { key:'agendado',       label:'📋 Agendados',           cor:'#3b82f6' },
-          { key:'preparacao',     label:'⚙️ Em Separação',        cor:'#f59e0b' },
-          { key:'em_transito',    label:'🚚 Em Trânsito',         cor:'#8b5cf6' },
-          { key:'andamento',      label:'🔬 Em Procedimento',     cor:'#10b981' },
-          { key:'a_retirar',      label:'📦 A Retirar',           cor:'#f97316' },
-          { key:'aguardando_ficha_opme', label:'📋 Aguard. Ficha OPME', cor:'#a855f7' },
-          { key:'reagendado',     label:'↺ Reagendados',          cor:'#a78bfa' },
-          { key:'concluido',      label:'✅ Concluídos',          cor:'#22c55e' },
-          { key:'cancelado',      label:'❌ Cancelados',           cor:'#6b7280' },
-        ];
-        const rows = grupos.map(g => {
-          const n = procs.filter(p => p.status === g.key).length;
-          return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:9px;background:rgba(255,255,255,${n>0?'0.07':'0.03'});">
-            <span style="font-size:0.83rem;color:${n>0?'var(--text,#0f172a)':'var(--text-dim,#94a3b8)'}">${g.label}</span>
+        const contagem = window.contarProcedimentosPorStatus(procs);
+
+        const FINAIS = ['concluido', 'cancelado'];
+        const emFluxo = window.STATUS_META.filter(g => !FINAIS.includes(g.key));
+        const comPendencia = emFluxo.filter(g => contagem[g.key] > 0);
+        const semPendencia = emFluxo.filter(g => contagem[g.key] === 0);
+
+        const linha = g => {
+          const n = contagem[g.key];
+          const temFiltro = !!document.querySelector('.filter-btn[data-filter="' + g.key + '"]');
+          const clicavel = n > 0 && temFiltro;
+          return `<div ${clicavel ? `data-key="${g.key}" class="resumo-row-clicavel" title="Ver na Central Cirúrgica →"` : ''} style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:9px;background:rgba(255,255,255,${n>0?'0.07':'0.03'});${clicavel?'cursor:pointer;':''}">
+            <span style="font-size:0.83rem;color:${n>0?'var(--text,#0f172a)':'var(--text-dim,#94a3b8)'}">${g.emoji} ${g.label}</span>
             <span style="font-family:var(--mono,monospace);font-size:1.05rem;font-weight:700;color:${n>0?g.cor:'var(--text-dim,#94a3b8)'};">${n}</span>
           </div>`;
-        }).join('');
+        };
+
+        // Linhas zeradas (ex: Em Separação, Reagendados quando não há nenhum)
+        // não ganham mais uma linha inteira cada uma — só ocupavam espaço sem
+        // informar nada de acionável. Viram uma única linha discreta no rodapé.
+        const rowsPendentes = comPendencia.map(linha).join('');
+        const rowsVazias = semPendencia.length
+          ? `<div style="padding:6px 12px 2px;font-size:0.72rem;color:var(--text-dim,#94a3b8);">Sem pendências: ${semPendencia.map(g => g.label).join(', ')}</div>`
+          : '';
+
+        // Concluídos ganha destaque proporcional (barra) em vez de disputar o
+        // mesmo peso visual das filas realmente pendentes — normalmente é a
+        // grande maioria do total (ex: 359 de 379) e a lista plana anterior
+        // fazia esse número parecer "mais uma linha" igual às outras.
+        const concluido = contagem['concluido'] || 0;
+        const cancelado = contagem['cancelado'] || 0;
+        const pctConcluido = total > 0 ? Math.round((concluido / total) * 100) : 0;
+        const barraConcluido = `
+          <div style="margin-top:8px;padding:10px 12px;border-radius:9px;background:rgba(34,197,94,0.08);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:0.83rem;color:var(--text,#0f172a);">✅ Concluídos</span>
+              <span style="font-family:var(--mono,monospace);font-size:1.05rem;font-weight:700;color:#22c55e;">${concluido} <span style="font-size:0.7rem;font-weight:600;color:var(--text-dim,#94a3b8);">(${pctConcluido}%)</span></span>
+            </div>
+            <div style="height:5px;border-radius:3px;background:rgba(255,255,255,0.08);overflow:hidden;">
+              <div style="height:100%;width:${pctConcluido}%;background:linear-gradient(90deg,#4db87a,#22c55e);border-radius:3px;"></div>
+            </div>
+          </div>`;
+        const linhaCancelado = cancelado > 0
+          ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 12px;margin-top:2px;">
+              <span style="font-size:0.76rem;color:var(--text-dim,#94a3b8);">❌ Cancelados</span>
+              <span style="font-family:var(--mono,monospace);font-size:0.85rem;font-weight:700;color:var(--text-dim,#94a3b8);">${cancelado}</span>
+            </div>`
+          : '';
+
         if (!document.getElementById('resumo-css')) {
           const s = document.createElement('style');
           s.id = 'resumo-css';
-          s.textContent = '@keyframes resumoIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}';
+          s.textContent = '@keyframes resumoIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}'
+            + '.resumo-row-clicavel:hover{background:rgba(255,255,255,0.13) !important;}';
           document.head.appendChild(s);
         }
         const ov = document.createElement('div');
@@ -313,12 +379,23 @@
               </div>
               <button id="resumo-fechar" style="background:rgba(107,114,128,0.1);border:none;border-radius:8px;padding:5px 9px;cursor:pointer;color:var(--text-dim,#6b7280);font-size:0.9rem;">✕</button>
             </div>
-            <div style="display:flex;flex-direction:column;gap:3px;max-height:52vh;overflow-y:auto;">${rows}</div>
+            <div style="display:flex;flex-direction:column;gap:3px;max-height:52vh;overflow-y:auto;">${rowsPendentes}${rowsVazias}${barraConcluido}${linhaCancelado}</div>
             <button id="resumo-entrar" style="margin-top:16px;width:100%;padding:11px;border-radius:10px;background:linear-gradient(135deg,#4db87a,#22c55e);border:none;color:#fff;font-family:var(--mono,monospace);font-size:0.78rem;font-weight:700;cursor:pointer;letter-spacing:0.07em;">
               ENTRAR NO MONITOR →
             </button>
           </div>`;
         const fechar = () => ov.remove();
+        const irParaFiltro = key => {
+          const btn = document.querySelector('.filter-btn[data-filter="' + key + '"]');
+          if (!btn) return;
+          fechar();
+          if (typeof window.switchView === 'function') window.switchView('table');
+          btn.click();
+          btn.scrollIntoView({ behavior:'smooth', block:'nearest' });
+        };
+        ov.querySelectorAll('[data-key]').forEach(el => {
+          el.addEventListener('click', () => irParaFiltro(el.dataset.key));
+        });
         ov.querySelector('#resumo-fechar').addEventListener('click', fechar);
         ov.querySelector('#resumo-entrar').addEventListener('click', fechar);
         ov.addEventListener('click', e => { if (e.target === ov) fechar(); });
@@ -913,24 +990,32 @@
               }
 
               dados.forEach(p => {
+                // Guarda o status com que o registro entrou nesta passada. As regras
+                // abaixo podem encadear (ex: agendado → preparacao → andamento numa
+                // única execução, pra recuperar atraso), mas isso é só um detalhe
+                // interno — só disparamos UMA escrita e UMA notificação por registro
+                // no final, comparando o status inicial com o final. Antes, cada
+                // etapa do encadeamento chamava autoTransitar() separadamente, o que
+                // gerava múltiplos setDoc() concorrentes (sem await) pro mesmo
+                // registro — e, como não há garantia de ordem entre eles, o Supabase
+                // podia acabar persistindo um status intermediário mesmo com a UI já
+                // mostrando o status final. Também duplicava notificações pro usuário.
+                const statusInicial = p.status;
+
                 // Autorizado + data da cirurgia já cadastrada → Agendado
                 if (p.status === 'a_agendar' && p.data && p.data.trim()) {
                   p.status = 'agendado';
-                  autoTransitar(p, 'a_agendar');
                 }
 
                 // NF emitida no mesmo dia da cirurgia (sem janela de trânsito) → Em Procedimento direto
-                if (!['andamento','a_retirar','aguardando_ficha_opme','concluido','cancelado','urgencia','coleta_urgente'].includes(p.status)
+                if (!['andamento','a_retirar','aguardando_ficha_opme','reagendado','concluido','cancelado','urgencia','coleta_urgente'].includes(p.status)
                     && p.data && p.nfData && p.nfData === p.data && p.data <= hoje) {
-                  const statusAnterior = p.status;
                   p.status = 'andamento';
-                  autoTransitar(p, statusAnterior);
                 }
 
                 // Em Trânsito sem NF → Em Separação (NF obrigatória para manter em trânsito)
                 if (p.status === 'em_transito' && (!p.nf || !p.nf.trim())) {
                   p.status = 'preparacao';
-                  autoTransitar(p, 'em_transito');
                 }
 
                 // Agendado + NF já emitida → Em Trânsito direto, independente de quantos
@@ -938,39 +1023,38 @@
                 // despachado, não precisa esperar a véspera pra promover o status).
                 if (p.status === 'agendado' && p.nf && p.nf.trim()) {
                   p.status = 'em_transito';
-                  autoTransitar(p, 'agendado');
                 }
 
                 // Agendado: véspera (D-1, aviso antecipado) OU data já chegou/passou
                 // (recuperação de atraso) → Em Separação
                 if (p.status === 'agendado' && p.data && (p.data === amanha || p.data <= hoje)) {
                   p.status = 'preparacao';
-                  autoTransitar(p, 'agendado');
                 }
 
                 // Em Separação + NF já emitida → Em Trânsito (NF emitida significa que o
                 // material já foi despachado; "Em Separação" é só pra quando ainda não tem NF)
                 if (p.status === 'preparacao' && p.nf && p.nf.trim()) {
                   p.status = 'em_transito';
-                  autoTransitar(p, 'preparacao');
                 }
 
                 // Em Separação ou Em Trânsito + data da cirurgia já chegou/passou → Em Procedimento
                 if ((p.status === 'preparacao' || p.status === 'em_transito') && p.data && p.data <= hoje) {
-                  const statusAnterior = p.status;
                   p.status = 'andamento';
-                  autoTransitar(p, statusAnterior);
                 }
 
                 // Data de retirada já chegou ou passou → Aguardando Retirada (automático,
                 // recupera atraso independente de qual status intermediário o registro
-                // estava parado)
-                if (!['a_retirar','aguardando_ficha_opme','concluido','cancelado','urgencia','coleta_urgente'].includes(p.status)
+                // estava parado). 'reagendado' fica de fora: um registro reagendado não
+                // deve ser puxado de volta pro fluxo automático — antes essa lista
+                // esquecia 'reagendado' e um registro recém-reagendado podia ser
+                // silenciosamente promovido a 'a_retirar' no snapshot seguinte, como se
+                // o reagendamento nunca tivesse acontecido.
+                if (!['a_retirar','aguardando_ficha_opme','reagendado','concluido','cancelado','urgencia','coleta_urgente'].includes(p.status)
                     && (p.retirada || p.dataRetirar) && (p.retirada || p.dataRetirar) <= hoje) {
-                  const prev = p.status;
                   p.status = 'a_retirar';
-                  autoTransitar(p, prev);
                 }
+
+                if (p.status !== statusInicial) autoTransitar(p, statusInicial);
               });
 
               _porFilial[branchCode] = dados;
@@ -7304,8 +7388,12 @@ function setPisca(id, anim, ativo) {
 
 function updateStats() {
     document.getElementById('stat-total').textContent = procedimentos.length;
-    ['a_agendar','andamento','preparacao','agendado','em_transito','concluido','cancelado','reagendado','a_retirar','aguardando_ficha_opme','urgencia','coleta_urgente'].forEach(s => {
-        const el = document.getElementById('stat-' + s); if (el) el.textContent = procedimentos.filter(p => p.status === s).length;
+    // Mesma contagem usada no resumo inicial (window.contarProcedimentosPorStatus,
+    // baseada em window.STATUS_META) — antes essa lista de status era uma cópia
+    // solta que podia divergir da usada em outros lugares do app.
+    const contagem = window.contarProcedimentosPorStatus ? window.contarProcedimentosPorStatus(procedimentos) : {};
+    Object.keys(contagem).forEach(s => {
+        const el = document.getElementById('stat-' + s); if (el) el.textContent = contagem[s];
     });
 
     // Limpar todas as animações antes de reaplicar
@@ -8008,9 +8096,9 @@ function renderCards() {
     try { list = getFiltered(); } catch(e) {
         grid.innerHTML = `<div style="grid-column:1/-1;padding:20px;color:red;">Erro: ${e.message}</div>`; return;
     }
-    // Ocultar concluído e cancelado dos cards (exceto se mostrarOcultos ativo — mostra SÓ eles)
-    if (!mostrarOcultos) list = list.filter(p => p.status !== 'concluido' && p.status !== 'cancelado');
-    else list = list.filter(p => p.status === 'concluido' || p.status === 'cancelado');
+    // Ocultar concluído e cancelado dos cards (exceto se mostrarOcultos ativo — mostra SÓ eles,
+    // ou se o usuário filtrou/buscou explicitamente por eles — getFiltered() já cuida disso)
+    if (mostrarOcultos) list = list.filter(p => p.status === 'concluido' || p.status === 'cancelado');
     if (list.length === 0) {
         grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-dim);">Nenhum procedimento encontrado</div>'; return;
     }
@@ -10475,7 +10563,7 @@ function renderTable() {
 
     const list = mostrarOcultos
         ? getFiltered().filter(p => p.status === 'concluido' || p.status === 'cancelado')
-        : getFiltered().filter(p => p.status !== 'concluido' && p.status !== 'cancelado');
+        : getFiltered();
     const statusMap = { a_agendar:'Autorizado', andamento:'Em Procedimento', preparacao:'Em Separação', agendado:'Agendado', em_transito:'Em Trânsito', concluido:'Concluído', cancelado:'Cancelado', reagendado:'Reagendado', a_retirar:'Aguardando Retirada', aguardando_ficha_opme:'Aguardando Ficha OPME', urgencia:'🚨 URGÊNCIA', coleta_urgente:'✈️ Retirada de Material' };
 
     // Ordenar por horário (padrão) ou coluna selecionada
@@ -17183,40 +17271,46 @@ window.mostrarAlertaReagendado = mostrarAlertaReagendado;
   const HIDDEN = new Set(['concluido','cancelado']);
   function isHiddenStatus(s){ return HIDDEN.has(String(s || '').toLowerCase()); }
 
+  // Observação: mostrarOcultos/currentFilter/searchTerm são "let" declarados
+  // no script principal — como bindings globais são compartilhados entre
+  // <script> tags (mas não viram propriedade de window), usamos os nomes
+  // soltos aqui, e não window.mostrarOcultos etc., senão essas checagens
+  // acabam lendo uma variável fantasma sempre undefined.
   const originalGetFiltered = window.getFiltered;
   window.getFiltered = function(){
-    // Quando mostrarOcultos ativo, inclui concluído/cancelado normalmente
-    if (window.mostrarOcultos) {
-      return typeof originalGetFiltered === 'function' ? originalGetFiltered() : (window.procedimentos || []);
-    }
-    if (isHiddenStatus(window.currentFilter)) window.currentFilter = 'all';
     const base = typeof originalGetFiltered === 'function' ? originalGetFiltered() : (window.procedimentos || []);
+    // Quando mostrarOcultos ativo, inclui concluído/cancelado normalmente
+    if (mostrarOcultos) return base;
+    // Se o usuário selecionou explicitamente o filtro Concluídos/Cancelados,
+    // ou está buscando um termo (ex.: número de NF), não esconde — senão a
+    // busca/filtro nunca encontra os concluídos.
+    const filtroExplicito = isHiddenStatus(currentFilter);
+    const buscando = !!(searchTerm && String(searchTerm).trim());
+    if (filtroExplicito || buscando) return base;
     return (base || []).filter(function(p){ return !isHiddenStatus(p && p.status); });
   };
 
   // toggleOcultos: ativa/desativa exibição de concluídos e cancelados
   window.toggleOcultos = function(){
-    window.mostrarOcultos = !window.mostrarOcultos;
-    document.body.classList.toggle('mostrar-ocultos', window.mostrarOcultos);
+    mostrarOcultos = !mostrarOcultos;
+    document.body.classList.toggle('mostrar-ocultos', mostrarOcultos);
     const btn = document.getElementById('btn-toggle-ocultos');
     if (btn) {
-      btn.style.background   = window.mostrarOcultos ? 'rgba(99,102,241,0.18)' : 'rgba(107,114,128,0.12)';
-      btn.style.color        = window.mostrarOcultos ? '#6366f1' : '#6b7280';
-      btn.style.borderColor  = window.mostrarOcultos ? 'rgba(99,102,241,0.5)' : 'rgba(107,114,128,0.35)';
-      btn.textContent        = window.mostrarOcultos ? '👁 Ocultos (visíveis)' : '👁 Ocultos';
+      btn.style.background   = mostrarOcultos ? 'rgba(99,102,241,0.18)' : 'rgba(107,114,128,0.12)';
+      btn.style.color        = mostrarOcultos ? '#6366f1' : '#6b7280';
+      btn.style.borderColor  = mostrarOcultos ? 'rgba(99,102,241,0.5)' : 'rgba(107,114,128,0.35)';
+      btn.textContent        = mostrarOcultos ? '👁 Ocultos (visíveis)' : '👁 Ocultos';
     }
     if (typeof renderCards === 'function') renderCards();
   };
 
   document.addEventListener('DOMContentLoaded', function(){
-    window.mostrarOcultos = false;
     // Garante que o btn-toggle-ocultos apareça
     const btn = document.getElementById('btn-toggle-ocultos');
     if (btn) {
       btn.style.display = '';
       btn.textContent = '👁 Ocultos';
     }
-    if (isHiddenStatus(window.currentFilter)) window.currentFilter = 'all';
     if (typeof renderCards === 'function') renderCards();
   });
 })();
